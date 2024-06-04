@@ -1,0 +1,72 @@
+[antenna]
+default =   "TWIVSP6037L"
+type =      "str"
+help =      "Antenna name as recognised by IGS"
+metavar =   "NAME"
+
+[receiver] 
+default =   "UBLOX-ZED-F9P"
+type =      "str"
+help =      "U-Blox GPS receiver name"
+metavar =   "MODEL"
+
+[model_id]
+type =      "int"
+help =      "Model ID of U-Blox device.  If not specified, first found device."
+metavar =   "ID"
+
+[marker]
+default =   "NONE00CHL"
+type =      "str"
+help =      "GPS station marker name in RINEX format (e.g. NAME00CHL)"
+metavar =   "NNNN##CCC"
+
+[position]
+nargs =     3
+default =   [1713381, -5047934, -3490983]
+type =      "float"
+help =      "Approximate position"
+metavar =   ["X", "Y", "Z"]
+
+[geodetic]
+action =    "flag"
+type =      "bool"
+default =   false
+help =      "Whether position is given in geodetic (lon, lat, elev) or geocentric (X, Y, Z) coordinates"
+
+[ellipsoid]
+choices =   ["WGS84", "GRS80", "WGS72"]
+type =      "str"
+default =   "WGS84"
+help =      "Reference ellipsoid for geodetic coordinates"
+
+[path]
+default =   "./obsdata"
+type =      "pathlib.Path"
+help =      "Directory where U-Blox (.ubx) and RINEX (.obs) observations files are written"
+metavar =   "PATH"
+        
+[frequency]
+default =   "30s"
+type =      "astropy.time.TimeDelta"
+help =      "Interval between consecutive GPS measurements"
+metavar =   "FREQ"
+
+[period]
+default =   "15min"
+type =      "astropy.time.TimeDelta"
+help =      "Nominal duration of a single rinex file"
+metavar =   "PER"
+ 
+[observer]
+nargs =     2
+default =   ["Observatorio El Sauce", "Obstech"]
+type =      "str"
+help =      "Observer and institution"
+metavar =   ["OBS", "INST"]
+
+[clean]
+action =    "flag"
+type =      "bool"
+help =      "remove U-Blox file when RINEX has been succesfully produced"
+default =   false

@@ -1,0 +1,45 @@
+[marker]
+default =   "VERT00CHL"
+type =      "str"
+help =      "GNSS marker in RINEX 3 format"
+metavar =   "XXXXNNYYY"
+
+[service]
+default =   "csrs"
+type =      "str"
+help =      "Precise point positioning service"
+
+[period]
+default =   "15min"
+type =      "astropy.time.TimeDelta"
+help =      "Periodicity of PWV measurements"
+metavar =   "PER"
+
+[gps_run_length]
+default =   "8hr"
+type =      "astropy.time.TimeDelta"
+help =      "Length of GNSS PPP products"
+metavar =   "LEN"
+ 
+[frequency]
+default =   "30s"
+type =      "astropy.time.TimeDelta"
+help =      "Periodicity of GNSS PPP products"
+metavar =   "FRQ"
+
+[start_date]    
+default =   "2000-01-01T12:00:00"
+type =      "astropy.time.Time"
+metavar =   "DATE"
+help =      "Start submitting data from this date"
+
+[products_path]
+default =   "./products"
+type =      "pathlib.Path"
+help =      "Directory to which reduced data products are written"
+metavar =   "PATH"
+        
+[loop]
+action =    "flag"
+help =      "Repeatedly scan the filesystem for new product files"
+default =   false

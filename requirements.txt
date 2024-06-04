@@ -1,0 +1,16 @@
+numpy>=1.26.2
+scipy
+astropy>=5.2.1
+astroquery>=0.4.6
+matplotlib>=3.8.2
+requests_toolbelt>=1.0.0
+bs4
+ncompress>=1.0.1
+requests
+pygnssutils
+pyubx2
+usb
+openmeteo-requests
+retry-requests
+requests-cache
+# pandas

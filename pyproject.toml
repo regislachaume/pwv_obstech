@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pwv_obstech"
+description = "Estimate precipitable water vapour from GNSS measurements"
+readme = "README.md"
+authors = [
+  { name="Régis Lachaume", email="regis.lachaume@gmail.com" },
+]
+requires-python = ">=3.9"
+dynamic=["dependencies", "classifiers", "version"]
+
+[project.scripts]
+ublox_record = "pwv_obstech.ublox:record"
+csrs_pipeline = "pwv_obstech.csrs:pipeline"
+pwv_pipeline = "pwv_obstech.pwv:pipeline"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+classifiers = {file = ["classifiers.txt"]}
+version = {attr = "pwv_obstech.__version__"}

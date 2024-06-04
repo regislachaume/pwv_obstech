@@ -1,0 +1,58 @@
+[marker]
+default =   "NONE00CHL"
+type =      "str"
+help =      "GPS station marker name in RINEX format (e.g. NAME00CHL)"
+metavar =   "NNNN##CCC"
+
+[frequency]
+default =   "30s"
+type =      "astropy.time.TimeDelta"
+help =      "Interval between consecutive GPS measurements"
+metavar =   "FREQ"
+
+[period]
+default =   "15min"
+type =      "astropy.time.TimeDelta"
+help =      "Nominal duration of a single rinex file"
+metavar =   "PER"
+
+[gps_run_length]
+default =   "8hr"
+type =      "astropy.time.TimeDelta"
+help =      "Length of a GPS run"
+metavar =   "LEN"
+ 
+[username]
+required =  true
+type =      "str"
+metavar =   "EMAIL"
+help =      "Username for the CSRS PPP service"
+
+[start_date]    
+default =   "2000-01-01T12:00:00"
+type =      "astropy.time.Time"
+metavar =   "DATE"
+help =      "Start submitting data from this date"
+
+[data_path]
+default =   "./obsdata"
+type =      "pathlib.Path"
+help =      "Directory from where RINEX files are read"
+metavar =   "PATH"
+
+[products_path]
+default =   "./products"
+type =      "pathlib.Path"
+help =      "Directory to which reduced data products are written"
+metavar =   "PATH"
+        
+
+[overwrite]
+action =    "flag"
+help =      "Overwrite products (submit to CSRS again)"
+default =   false
+
+[loop]
+action =    "flag"
+help =      "Repeatedly scan the filesystem for new RINEX files to submit"
+default =   false
