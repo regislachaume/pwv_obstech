@@ -15,7 +15,7 @@ from .utils import date as dateutils
 from .utils.rinex import filepattern, filedate
 from .meteo.meteomodel import VerticalProfileClient
 from .meteo.openmeteo import OpenMeteoVerticalProfileClient
-from .meteo.database import MeteoDatabase
+from .meteo.database import MeteoDatabase, MySQLMeteoDatabase
 from .meteo.vertical import VerticalProfile
 
 from .utils import config
@@ -23,10 +23,11 @@ from .utils import config
 SECOND = TimeDelta('1s')
 
 @dataclass(frozen=True, kw_only=True)
-class PWVModel(Autocast):
+class PWVModel:
 
     meteo_model: VerticalProfileClient | None = OpenMeteoVerticalProfileClient()
     meteo_db: MeteoDatabase | None = None
+    period: TimeDelta('15min')
 
     def __call__(self, tab: Table):
     
@@ -38,15 +39,21 @@ class PWVModel(Autocast):
         t = Time(mean['date'], format='mjd')
         site = EarthLocation(mean['lon'], mean['lat'], mean['height'])
 
+        profile = None
         measured = dict()
         if self.meteo_db is not None:
-            measured = self.meteo_db.query(site=site, t=t)
-            profile = VerticalProfile(*measured, site=site, t=t)
+            T, P, h = self.meteo_db.mean_conditions(t, period)
+            if all(not np.isnan(x) for x in [T, P, h]):
+                measured = [T, P, h]
+                profile = VerticalProfile(*measured, site=site, t=t)
 
         if self.meteo_model is not None:
             profile = self.meteo_model.query(
                 site=site, t=t, measured_conditions=measured
             )
+
+        if profile is None:
+            return np.nan
         
         mean['ztd_weather'] = profile.zwd + profile.zhd
         mean['zhd_weather'] = profile.zhd
@@ -198,7 +205,19 @@ def pipeline():
         product='tro',
         loop=args.loop
     )
-    model = PWVModel()
+   
+    meteo_model = OpenMeteoVerticalProfileClient()
+ 
+    meteo_db = MySQLMeteoDatabase(
+        server=args.meteodb_server,
+        database=args.meteodb_database,
+        user=args.meteodb_user,
+        password=args.meteodb_password,
+        table=args.meteodb_table,
+        columns=args.meteodb_columns 
+    )
+
+    model = PWVModel(meteo_db=meteo_db, meteo_model=meteo_model)
 
     with ThreadPool(2) as pool:
         for r in pool.imap(model, scanner()):

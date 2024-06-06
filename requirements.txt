@@ -13,4 +13,4 @@ usb
 openmeteo-requests
 retry-requests
 requests-cache
-# pandas
+mysql-connector-python

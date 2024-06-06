@@ -43,3 +43,35 @@ metavar =   "PATH"
 action =    "flag"
 help =      "Repeatedly scan the filesystem for new product files"
 default =   false
+
+[meteodb_server]
+default =   "10.0.11.3"
+type =      "str"
+help =      "Server of local meteo database"
+metavar =   "IP"
+
+[meteodb_user]
+default =   "obstech"
+type =      "str"
+help =      "User of local meteo database"
+metavar =   "USR"
+
+[meteodb_password]
+default =    "-"
+type =       "str"
+help =       "Password of local meteo database"
+metavar =    "PWD"
+
+[meteodb_table]
+default =    "weather"
+type =       "str"
+help =       "Name of the table in local meteo database"
+metavar =    "TAB"
+
+[meteodb_columns]
+default =    ["fecha", "temperature_external", "pressure", "humidity"]
+metavar =    "COL"
+type =       "str"
+nargs =      4
+help =       "Name of the date, temperature, pressure, humidity columns in the database"
+
