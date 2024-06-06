@@ -4,7 +4,7 @@ config = dict(
     host='10.0.11.3',
     database='ElSauceWeather',
     user='obstech', 
-    password='obstech4860'
+    password='*'
 )
 cnx = connector.connect(**config)
 cursor = cnx.cursor()
