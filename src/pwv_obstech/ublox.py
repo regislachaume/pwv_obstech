@@ -35,22 +35,6 @@ from .utils import config
 
 def find_ublox_device(*, vid: int = 5446, pid: int = 0) -> Path | None:
 
-    # try instead with platform-independant list_ports.comports()
-    #
-    # context: pyudev.Context = pyudev.Context()
-    #
-    # for dev in context.list_devices(subsystem='tty'):
-    #    
-    #    vendor = dev.get('ID_VENDOR_FROM_DATABASE', '')
-    #
-    #    if not vendor.startswith('U-Blox'):
-    #        continue
-    #    
-    #    if model_id and model_id != dev.get('ID_USB_MODEL_ID'):
-    #        continue
-    #            
-    #    return dev.device_node
-
     for port in list_serial_ports():
     
         if vid and self.vid != vid:
@@ -64,7 +48,6 @@ def find_ublox_device(*, vid: int = 5446, pid: int = 0) -> Path | None:
     return None
     
 def start_mjd_time(mjd: float, per: float) -> tuple[float, float]:
-
 
     mjd, sod = mjd // 1, (mjd % 1) * 86400
     try:
