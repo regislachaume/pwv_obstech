@@ -1,5 +1,5 @@
 [marker]
-default =   "NONE00CHL"
+default =   "SAUC00CHL"
 type =      "str"
 help =      "GPS station marker name in RINEX format (e.g. NAME00CHL)"
 metavar =   "NNNN##CCC"
@@ -46,7 +46,6 @@ type =      "pathlib.Path"
 help =      "Directory to which reduced data products are written"
 metavar =   "PATH"
         
-
 [overwrite]
 action =    "flag"
 help =      "Overwrite products (submit to CSRS again)"

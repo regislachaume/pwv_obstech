@@ -5,11 +5,14 @@ from serial import Serial, SerialException
 from serial.tools.list_ports import comports as list_serial_ports
 from time import sleep
 import os
+import logging
 
 from dataclasses import dataclass
+from .utils.dataclasses import Autocast
+from .utils.logging import daily_logger
 # import pyudev 
 
-from typing import BinaryIO
+from typing import BinaryIO, Union
 from astropy.time import Time, TimeDelta
 from astropy.coordinates import EarthLocation 
 
@@ -32,20 +35,24 @@ from pyubx2 import (
 from . import get_resource
 from .utils import rinex as rnxutils
 from .utils import config 
+from .comm.mqtt import obstech_mqtt_client, MQTTClient
 
-def find_ublox_device(*, vid: int = 5446, pid: int = 0) -> Path | None:
+MQTT_TOPIC = '/ElSauce/Weather/GNSS'
+
+def find_ublox_device(*, vid: int = 5446, pid: int = 0) -> Path:
 
     for port in list_serial_ports():
     
-        if vid and self.vid != vid:
+        if vid and port.vid != vid:
             continue
 
-        if pid and self.pid != pid:
+        if pid and port.pid != pid:
             continue
 
         return port.device
-
-    return None
+               
+    msg = "No U-Blox device connected..."
+    raise SerialException(msg)
     
 def start_mjd_time(mjd: float, per: float) -> tuple[float, float]:
 
@@ -61,21 +68,25 @@ def start_mjd_time(mjd: float, per: float) -> tuple[float, float]:
 
 
 @dataclass
-class RawUBXReader:
+class RawUBXReader(Autocast):
 
-    model_id: int 
-    queue: Queue
-    receiver: str | None = None 
+    queue: Queue = Queue()
+    model_id: int = 0 
+    receiver: str = ''
     baudrate: int = 256000 
     timeout: float = 3
     max_msg: int = 10**12 
+    mqtt_client: MQTTClient = obstech_mqtt_client(topic=MQTT_TOPIC)
 
     def load_config(self, port) -> None:
-
+        
         if not self.receiver:
             return
+
+        logger = logging.getLogger()
  
         config = get_resource(f'config/{self.receiver}.conf')
+        logger.info('Load UBX {config}')
         print(f"Load {config}...")
         with open(config, "rb") as in_:
             with Serial(port, self.baudrate, timeout=self.timeout) as out:
@@ -92,6 +103,8 @@ class RawUBXReader:
             
     def parse_stream(self, stream: BinaryIO) -> None:
     
+        logger = logging.getLogger()
+
         reader = UBXReader(
             stream,
             quitonerror=ERR_LOG, protfilter=UBX_PROTOCOL,
@@ -106,28 +119,46 @@ class RawUBXReader:
                 (raw, parsed) = reader.read()
             except (UBXMessageError, UBXParseError,
                     UBXStreamError, UBXTypeError) as e:
-                print(f"UBX parsing issue: {type(e)} {e}")
+                logger.info(f"UBX parsing issue: {type(e)} {e}")
                 continue
             except (EOFError, KeyboardInterrupt, SerialException):
                 raise
             except Exception as e:
-                print(f"unexpected exception {type(e)} {e}")
+                msg = f"unexpected UBX reading error {type(e).__name__} {e}"
+                logger.warning(msg)
                 continue
  
             if raw is None:  # EOF or timeout
                 print("No input: will stop.")
+                logger.error('End of UBX messages')
                 raise EOFError
 
             if not self.keep_message(parsed):
                 continue
   
             n_msg += 1
- 
+            
+            # logging and communication
+
             rcv_gps_time = parsed.rcvTow + parsed.week * 604800
-            print(f'Got message at {rcv_gps_time:.1f}')
+            t = Time(rcv_gps_time, format='gps').isot
+
+            if n_msg % 20 == 0:
+                logger.debug(f'Received 20 RAW UBX messages at GPS time {t}')
+            
+            if n_msg % 120 == 0:
+                mqtt_payload = dict(
+                    date=t, 
+                    event='RAW GNSS messages being received',
+                    filename=None
+                )
+                self.mqtt_client.publish(mqtt_payload)
+
             self.queue.put((rcv_gps_time, raw, parsed))
     
     def start(self) -> None:
+
+        logger = logging.getLogger()
 
         while(True):
 
@@ -135,11 +166,9 @@ class RawUBXReader:
 
                 # find u-blox device
 
-                if port := find_ublox_device(pid=self.model_id):
-                    print(f"U-blox device found at {port}")
-                else:
-                    msg = "No U-Blox device connected... will retry soon"
-                    raise SerialException(msg)
+                port = find_ublox_device(pid=self.model_id)
+                print(f"U-blox device found at {port}")
+                logger.info(f'U-blox device found at {port}')
                
                 # write configureation to device
 
@@ -153,6 +182,8 @@ class RawUBXReader:
                     self.parse_stream(in_)
 
             except SerialException as e:
+                logger.warning(f'No serial port connection: e')
+                logger.warning(f'will retry in 30 s')
                 print(e)
                 sleep(30)
 
@@ -161,6 +192,7 @@ class RawUBXReader:
 
             except Exception as e:
                 print(f'unforeseen termination: {e}')
+                logger.error(f'unforeseen termination: {e}')
                 break
 
         print('End of messages')
@@ -168,37 +200,46 @@ class RawUBXReader:
 
 
 @dataclass
-class RawUBXConverter:
+class RawUBXConverter(Autocast):
 
-    queue: Queue
+    position: EarthLocation 
     marker: str
-    period: int = 900
-    frequency: int = 30
-    path: Path | str = './obsdata'
-    position: EarthLocation | None = None
+    queue: Queue = Queue()
+    period: TimeDelta = TimeDelta('15min')
+    frequency: TimeDelta = TimeDelta('30s')
+    path: Path = Path('./obsdata')
     receiver: str = 'UNKNOWN'
     antenna: str = 'UNKNOWN'
     observer: str = 'UNKNOWN'
     institution: str = 'UNKNOWN'
     clean: bool = False
+    mqtt_client: MQTTClient = obstech_mqtt_client(topic=MQTT_TOPIC)
 
     def convert_to_rinex(self, ubx_file: Path) -> None:
 
-        convbin_options = "-od -os -v 3 -hm {self.marker} -ht GEODETIC"
-        convbin_options += " -ho {self.observer}/{self.institution}"
+        logger = logging.getLogger()
+
+        convbin_options = f"-od -os -v 3 -hm {self.marker} -ht GEODETIC"
+        convbin_options += f" -ho {self.observer}/{self.institution}"
         convbin_options += f" -ha UNKNOWN/{self.antenna}"
         convbin_options += f" -hr UNKNOWN/{self.receiver}"
 
-        if self.position is not None:
-            pos = [p.value for p in self.position.geocentric]
-            pos = '/'.join(format(p, '.3f') for p in pos)
-            convbin_options += f" -hp {pos}"
+        pos = [p.value for p in self.position.geocentric]
+        pos = '/'.join(format(p, '.3f') for p in pos)
+        convbin_options += f" -hp {pos}"
 
         rnx_file = str(ubx_file)[:-3] + 'rnx'
 
         cmd = f'convbin {convbin_options} -o {rnx_file} {ubx_file}'
         if os.system(cmd):
-            print(cmd)
+            logger.info(f'New RINEX file: {rnx_file}')
+            logger.info(f'Created with: {cmd}')
+            mqtt_payload = dict(
+                date=Time.now().isot,
+                event='RINEX file generated', 
+                filename=rnx_file,
+            )
+            self.mqtt_client.publish(mqtt_payload)
         elif self.clean:
             ubx_file.unlink()
 
@@ -208,7 +249,11 @@ class RawUBXConverter:
         ubx_stream: BinaryIO = None
     ) -> BinaryIO:
 
-        print(f'new file at {file_start_time[1]} s')        
+        logger = logging.getLogger()
+
+        t = Time(file_start_time[1], format='gps').isot
+        msg = f'Starting new UBX file at GPS time {file_start_time[1]} s'
+        logger.info(msg)
         if ubx_stream is not None:
             ubx_file = ubx_stream.name
             ubx_stream.close()
@@ -232,6 +277,8 @@ class RawUBXConverter:
         return ubx_stream
 
     def run(self) -> None:
+
+        logger = logging.getLogger()
 
         # in RINEX parlance, file duration is the file period and spacing
         # between measurements, the date frequency 
@@ -257,17 +304,19 @@ class RawUBXConverter:
                     ubx_stream = self.new_file(period_start_time, ubx_stream)
                     prev_period_start_time = period_start_time
 
-                print(f' * kept message at {rcv_gps_time:.1f}')
+                t = Time(rcv_gps_time, format='gps').isot
+                logger.info(f'Kept RAW UBX message at GPS time {t}')
                 ubx_stream.write(raw)
 
             self.queue.task_done()
 
         if item is None:
             self.queue.put(item) 
-    
+   
+        logger.info('Processing done') 
         print('Processing done')
 
-def record(args: list[str] | None = None) -> None: 
+def record(args: Union[list[str], None] = None) -> None: 
         
     user_types={
         'astropy.time.Time': Time, 
@@ -275,32 +324,39 @@ def record(args: list[str] | None = None) -> None:
         'pathlib.Path': Path,
     }
 
+    name = 'ublox_record'
     parser = config.ConfigParser(
-        name='ublox_record',
+        name=name,
         description='Read raw GPS measurements from ublox receiver every FREQUENCY and write into RINEX obs files of length PERIOD'
     )
     parser.add_options_from_config(user_types=user_types)
     args = parser.parse_args(args=args)
+    
+    args.position = EarthLocation(*args.position)
 
     queue = Queue()
-
-    if args.geodetic:
-        position = EarthLocation.from_geodetic(
-                *args.position, ellipsoid=args.ellipsoid
-        )
-    else:
-        position = EarthLocation.from_geocentric(*args.position, unit="m")
 
     converter = RawUBXConverter(
         queue=queue, path=args.path, 
         period=args.period, frequency=args.frequency,
-        marker=args.marker, antenna=args.antenna, receiver=args.receiver,
-        position=position, clean=args.clean
+        marker=args.marker, antenna=args.antenna, receiver=args.receiver,     
+        position=args.position, clean=args.clean,
     )
     reader = RawUBXReader(
         model_id=args.model_id, receiver=args.receiver, queue=queue
     )
-        
+   
+    # logging 
+    log_path = args.path / args.marker / 'logs'
+
+    logger = daily_logger(path=log_path, basename=name)
+    logger.setLevel(logging.DEBUG)
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(message)s", 
+        datefmt="%Y-%m%dT%I:%M:%S",
+        encoding='utf8',
+    )
+    
     converter_thread = Thread(target=converter.run)
     try: 
         converter_thread.start()

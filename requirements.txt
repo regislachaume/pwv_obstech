@@ -14,3 +14,4 @@ openmeteo-requests
 retry-requests
 requests-cache
 mysql-connector-python
+pygeodesy

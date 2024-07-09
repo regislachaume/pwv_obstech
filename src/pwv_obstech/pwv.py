@@ -1,6 +1,5 @@
 from astropy.time import Time, TimeDelta
 from astropy.table import Table
-from astropy.coordinates import EarthLocation
 
 from pathlib import Path
 from dataclasses import dataclass
@@ -17,12 +16,16 @@ from .meteo.meteomodel import VerticalProfileClient
 from .meteo.openmeteo import OpenMeteoVerticalProfileClient
 from .meteo.database import MeteoDatabase, MySQLMeteoDatabase
 from .meteo.vertical import VerticalProfile
+from .meteo import GeoidLocation
 
 from .utils import config
 
 SECOND = TimeDelta('1s')
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(
+    frozen=True, 
+    # kw_only=True
+)
 class PWVModel:
 
     meteo_model: VerticalProfileClient | None = OpenMeteoVerticalProfileClient()
@@ -37,7 +40,7 @@ class PWVModel:
                             if not k.startswith(('STDDEV', 'TG'))}
  
         t = Time(mean['date'], format='mjd')
-        site = EarthLocation(mean['lon'], mean['lat'], mean['height'])
+        site = GeoidLocation(mean['lon'], mean['lat'], mean['height'])
 
         profile = None
         measured = dict()

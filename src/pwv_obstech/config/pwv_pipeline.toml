@@ -1,5 +1,5 @@
 [marker]
-default =   "VERT00CHL"
+default =   "SAUC00CHL"
 type =      "str"
 help =      "GNSS marker in RINEX 3 format"
 metavar =   "XXXXNNYYY"

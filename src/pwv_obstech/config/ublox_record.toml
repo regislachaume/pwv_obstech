@@ -12,27 +12,22 @@ metavar =   "MODEL"
 
 [model_id]
 type =      "int"
+default =   0
 help =      "Model ID of U-Blox device.  If not specified, first found device."
 metavar =   "ID"
 
 [marker]
-default =   "NONE00CHL"
+default =   "SAUC00CHL"
 type =      "str"
-help =      "GPS station marker name in RINEX format (e.g. NAME00CHL)"
+help =      "GPS station marker name in RINEX format, e.g. NAME00CHL"
 metavar =   "NNNN##CCC"
 
 [position]
 nargs =     3
-default =   [1713381, -5047934, -3490983]
+default =   [-70.76509836, -30.47092780, 1609.204]
 type =      "float"
-help =      "Approximate position"
+help =      "Approximate position, either in geocentric (X, Y, Z) format or geoedetic (lon, lat, height) one."
 metavar =   ["X", "Y", "Z"]
-
-[geodetic]
-action =    "flag"
-type =      "bool"
-default =   false
-help =      "Whether position is given in geodetic (lon, lat, elev) or geocentric (X, Y, Z) coordinates"
 
 [ellipsoid]
 choices =   ["WGS84", "GRS80", "WGS72"]

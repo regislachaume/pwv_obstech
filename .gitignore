@@ -13,6 +13,9 @@ data
 
 # local venv
 venv
+.venv
+.env
+.pwv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -10,6 +10,7 @@ from retry_requests import retry
 from . import meteoutils 
 from .vertical import VerticalProfile
 from .meteomodel import VerticalProfileClient
+from .geoid import GeoidLocation
 
 HOUR = TimeDelta('1hr', scale='tai')
 SECOND = TimeDelta('1s', scale='tai')
@@ -53,7 +54,7 @@ class OpenMeteoVerticalProfileClient(VerticalProfileClient):
     
     def query(
         self, 
-        site: EarthLocation, 
+        site: GeoidLocation, 
         t: Time | None = None, 
         *,
         measured_conditions: dict[str, float] = {},
@@ -94,7 +95,7 @@ class OpenMeteoVerticalProfileClient(VerticalProfileClient):
         params = dict(
             longitude=site.lon.deg,
             latitude=site.lat.deg,
-            elevation=site.height.to_value('m'),
+            elevation=site.geoid_height.to_value('m'),
             start_hour=start.isot[0:16],
             end_hour=end.isot[0:16],
             hourly=hourly

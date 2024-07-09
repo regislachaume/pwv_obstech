@@ -4,13 +4,25 @@ class Autocast:
 
        for name, field in self.__dataclass_fields__.items():
 
-            value = getattr(self, name)
-            type = field.type
+            try: 
+                value = getattr(self, name)
+            except AttributeError:
+                continue
 
-            if not isinstance(value, type):
-                object.__setattr__(self, name, type(value))                      
+            type_ = field.type
+
+            if not isinstance(value, type_):
+                object.__setattr__(self, name, type_(value))                      
+
     def __setattr__(self, name: str, value: object) -> None:
 
         fields = self.__dataclass_fields__
+        
         if name in fields:
-            value = fields[name].type(value)
+
+            type_ = fields[name].type
+
+            if not isinstance(value, type_):
+                value = type_(value)
+
+        object.__setattr__(self, name, value)

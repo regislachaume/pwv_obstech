@@ -1,77 +1,76 @@
 from astropy.time import Time, TimeDelta
 from astropy.table import Table
+import logging
 
 from pathlib import Path
 from dataclasses import dataclass
+from .dataclasses import Autocast
+
 from time import sleep
 
 from . import date as dateutils
 
+from typing import Union
+
 SECOND = TimeDelta(1, format='sec')
 
-def _parse_frequency(frequency: str | TimeDelta | float) -> str:
+def _parse_frequency(frequency: TimeDelta) -> str:
 
-    if not isinstance(frequency, str):
+    frequency = frequency.sec
+    if frequency == 0:
+        return ''
+    if frequency <= 1 / 9950 or frequency > 99.5*86400:
+        return 'OOU'
+    if frequency < 0.01:
+        return f"{round(0.01 / frequency):02d}C"
+    if frequency < 1:
+        return f"{round(1 / frequency):02d}H"
+    if frequency < 55.5:
+        return f"{round(frequency):02d}S"
+    if frequency < 59.5 * 60:
+        return f"{round(frequency / 60):02d}M"
+    if frequency < 23.5 * 3600:
+        return f"{round(frequency / 3600):02d}H"
+        
+    return f"{frequency / 86400:02d}D"
 
-        if isinstance(frequency, TimeDelta):
-            frequency = frequency.sec
+def _parse_period(period: TimeDelta) -> str:
 
-        if frequency <= 1 / 9950 or frequency > 99.5*86400:
-            frequency = 'OOU'
-        elif frequency < 0.01:
-            frequency = f"{round(0.01 / frequency):02d}C"
-        elif frequency < 1:
-            frequency = f"{round(1 / frequency):02d}H"
-        elif frequency < 55.5:
-            frequency = f"{round(frequency):02d}S"
-        elif frequency < 59.5 * 60:
-            frequency = f"{round(frequency / 60):02d}M"
-        elif frequency < 23.5 * 3600:
-            frequency = f"{round(frequency / 3600):02d}H"
-        else:
-            frequency = f"{frequency / 86400:02d}D"
+    period = period.sec
 
-    return frequency
+    if period == 0:
+        return ''
+    if period >= 1 and period < 55.5:
+        return f"{round(period):02d}S"
+    if period < 59.5 * 60:
+        return f"{round(period / 60):02d}M"
+    if period < 23.5 * 3600:
+        return f"{round(period / 3600):02d}H"
+    if period < 99.5 * 86400:
+        return f"{round(period / 86400):02d}D"
+    if period > 365 * 86400 and period < 99.5 * 365.25 * 86400:
+        return f"{round(period / (365.25 * 86400))}"
+    
+    return "00U"
 
-def _parse_period(period: str | TimeDelta | float) -> str:
-
-    if not isinstance(period, str):
-
-        if isinstance(period, TimeDelta):
-            period = period.sec
-
-        if period >= 1 and period < 55.5:
-            period = f"{round(period):02d}S"
-        elif period < 59.5 * 60:
-            period = f"{round(period / 60):02d}M"
-        elif period < 23.5 * 3600:
-            period = f"{round(period / 3600):02d}H"
-        elif period < 99.5 * 86400:
-            period = f"{round(period / 86400):02d}D"
-        elif period > 365 * 86400 and period < 99.5 * 365.25 * 86400:
-            period = f"{round(period / (365.25 * 86400))}"
-        else:
-            period = "00U"
-
-    return period
-
-def filedate(f: Path | str) -> Time:
+def filedate(f: Union[str, Path]) -> Time:
 
     if isinstance(f, Path):
         f = f.name
+    
     date = f.split('_')[2]
 
     return dateutils.date(date)
 
-
 def filepattern(
-    marker: str | None = None,
-    date: str | Time | None =None, *,  
-    source: str | None = None,
-    period: str | TimeDelta | float | None = None,
-    frequency: str | TimeDelta | float | None = None,
-    constellation: str | None = None,
-    datatype: str | None = None,
+    marker: str = '',
+    date: Time = Time(0, format='mjd'),
+    *,  
+    source: str = '',
+    period: TimeDelta = TimeDelta('0s'),
+    frequency: TimeDelta=  TimeDelta('0s'),
+    constellation: str = '',
+    datatype: str = '',
     filetype: str = 'rnx',
     version: int = 3,
 ) -> str:
@@ -83,9 +82,10 @@ def filepattern(
 
 def filename(
     marker: str, 
-    date: str | Time, *, 
-    period: str | TimeDelta | float, 
-    frequency: str | TimeDelta | float, 
+    date: Time = Time(0, format='mjd'), 
+    *, 
+    period: TimeDelta = TimeDelta('0s'), 
+    frequency: TimeDelta = TimeDelta('0s'), 
     source: str = 'R', 
     datatype: str = 'O', 
     constellation: str = 'M', 
@@ -93,12 +93,10 @@ def filename(
     version: int = 3
 ) -> Path:
 
-    if period:
-        period = _parse_period(period)
-    if frequency:
-        frequency = _parse_frequency(frequency)
+    period = _parse_period(period)
+    frequency = _parse_frequency(frequency)
 
-    rnxdate = dateutils.format(date, 'rnx') if date else None
+    rnxdate = dateutils.format(date, 'rnx') if date.mjd else None
 
     if version == 3:
 
@@ -121,12 +119,12 @@ def filename(
         yy = rnxdate[2:4] if rxndate else '[0-9]' * 2
         doy = rnxdate[4:7] if rnxdate else '[0-9]' * 3
 
-        if not period or not date:
+        if not period or not date.mjd:
             hour = '[0a-x]'
         elif 'D' in period or 'Y' in period or period == '24H':
             hour = '0'
         else:
-            hour = min(int(Time(date).isot[11:12]), 23)
+            hour = min(int(date.isot[11:12]), 23)
             hour = chr(ord('a') + hour)
  
         if filetype.startswith('crx'):
@@ -143,18 +141,19 @@ def filename(
 
 def file(
     marker: str, 
-    date: str | Time, *, 
+    date: Time, 
+    *, 
     source: str = 'R', 
-    period: str | TimeDelta | float, 
-    frequency: str | TimeDelta | float, 
+    period: TimeDelta, 
+    frequency: TimeDelta, 
     datatype: str = 'O', 
     constellation: str = 'M', 
     filetype: str = 'rnx', 
     version: int = 3,
-    path: Path | str = '.'
+    path: Union[Path, str] = '.'
 ):
 
-    night = Time(date).iso[0:10]
+    night = date.iso[0:10]
     dir = Path(path).expanduser().absolute() / marker / night
     name = filename(marker, date, period=period,  frequency=frequency,
                 constellation=constellation, datatype=datatype, 
@@ -162,7 +161,7 @@ def file(
 
     return dir / name
 
-def merge(files: list[Path | str]) -> str:
+def merge(files: list[Union[Path, str]]) -> str:
 
     for i, file in enumerate(files):
 
@@ -184,8 +183,11 @@ def merge(files: list[Path | str]) -> str:
 
     return merged
 
-@dataclass(frozen=True, kw_only=True)
-class RinexObsScanner:
+@dataclass(
+    frozen=False, 
+    # kw_only=True # > python 3.10
+)
+class RinexObsScanner(Autocast):
     """
     Retrieve RINEX observation data from files and merge them to
     a given run duration.
@@ -201,38 +203,38 @@ class RinexObsScanner:
 
     """
     marker: str
-    path: str | Path = "./obsdata"
-    start_date: str | Time = '2000-01-01'
-    frequency: int = 30
-    period: int = 900
-    gps_run_length: int = 8 * 3600
+    path: Path = "./obsdata"
+    start_date: Time = '2000-01-01'
+    frequency: TimeDelta = '30s'
+    period: TimeDelta = '15min'
+    gps_run_length: TimeDelta = '8h'
     loop: bool = False
 
     def __call__(self):
 
-        self.start_date = Time(self.start_date)
+        logger = logging.getLogger()
 
-        period = TimeDelta(self.period, format='sec')
-        gps_run_length = TimeDelta(self.gps_run_length, format='sec')
-        expected_gps_run_size = gps_run_length / period
+        expected_gps_run_size = int(self.gps_run_length / self.period + .5)
 
         # it's a bit tricky here, we track the end of the gps run
         # so the start date is before the asked start date.  We'll
         # trim files earlier than start date later.
 
-        end = self.start_date + period - SECOND
+        end = self.start_date + self.period - SECOND
         nloop = 0
 
         while (nloop := nloop + 1):
-            
+
             if nloop > 1:
                 if not self.loop:
                     break
                 dt = self.period / 10
-                # print(f"Wait {dt:.0f}s before scanning again")
+                logger.info(f"Wait {dt:.0f}s before scanning again")
                 sleep(dt)
+ 
+            logger.info('Looking for new RINEX files')  
 
-            obs = self.list_obs(start=end - gps_run_length)
+            obs = self.list_obs(start=end - self.gps_run_length)
             dates = obs['date']
 
             last_date = obs[-1][0]
@@ -247,8 +249,8 @@ class RinexObsScanner:
                 if date < end:
                     continue
 
-                end = date + period - SECOND # to avoid num. rounding errors
-                start = end - gps_run_length
+                end = date + self.period - SECOND # avoid num. rounding errors
+                start = end - self.gps_run_length
                 keep = (dates  >= max(start, self.start_date)) * (dates < end)
                 gps_run = obs[keep]
 
@@ -259,14 +261,15 @@ class RinexObsScanner:
                 try:
                     merged_data = merge(gps_run['file'])
                 except Exception as e:
-                    print('could not merge RINEX files: {e}')
+                    logger.error('could not merge RINEX files: {e}')
                     continue
 
                 merged_name = filename(
                     self.marker, start + 2*SECOND, # again the rounding stuff
-                    period=gps_run_length, frequency=self.frequency,
+                    period=self.gps_run_length, frequency=self.frequency,
                 )
-                
+                logger.info(f'New RINEX data batch {merged_name}')               
+ 
                 yield (merged_name, merged_data)
 
     def list_obs(self, start: Time) -> Table:

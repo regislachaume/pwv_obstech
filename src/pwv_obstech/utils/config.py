@@ -1,4 +1,11 @@
-import tomllib
+try:
+    import tomllib
+except:
+    try:
+        from pip._vendor import toml as tomllib
+    except:
+        from pip._vendor import tomli as tomllib
+
 import yaml
 import argparse 
 import re
@@ -115,8 +122,8 @@ class ConfigParser:
     ) -> None:
 
         # system-wide configuration
-    
-        with open(self.sys_config_file, 'rb') as in_:
+   
+        with open(self.sys_config_file, 'r') as in_:
             sys_options = tomllib.load(in_)
         
         options = {opt: kwargs for opt, kwargs in sys_options.items()}
@@ -198,7 +205,7 @@ class ConfigParser:
 
     def parse_args(
         self, 
-        args: tuple[str] | None = None, 
+        args: tuple[str] = [], 
         namespace: object = None
     ) -> object:
 

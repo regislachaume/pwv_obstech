@@ -1,4 +1,5 @@
 from astropy.time import Time, TimeDelta
+from typing import Union
 
 DAY = TimeDelta(1, format='jd')
 
@@ -26,7 +27,7 @@ def date(s: str) -> Time:
 
     return Time(d)
 
-def format(date: str | Time, fmt: str) -> str:
+def format(date: Union[str, Time], fmt: str) -> str:
     """format_date(date, fmt)
 
 Arguments

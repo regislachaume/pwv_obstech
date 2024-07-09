@@ -3,6 +3,8 @@ from .utils import date as dateutils
 from .utils import rinex as rnxutils
 from .utils import config
 from .utils.dataclasses import Autocast
+from .comm.mqtt import obstech_mqtt_client, MQTTClient
+from .utils.logging import daily_logger
 
 from astropy.time import Time, TimeDelta
 from astropy.table import Table
@@ -13,6 +15,7 @@ from threading import current_thread
 from dataclasses import dataclass, field
 
 import logging
+from typing import Union
 
 from random import random
 import numpy as np
@@ -33,23 +36,14 @@ DOMAIN = 'https://webapp.csrs-scrs.nrcan-rncan.gc.ca'
 POST_URL = f"{DOMAIN}/CSRS-PPP/service/submit"
 RESULTS_URL = f"{DOMAIN}/CSRS-PPP/service/results"
 
-def message(msg: str) -> None:
-
-    name = current_thread().name
-    if name != 'MainThread':
-        message = f"csrs: [{name}] {msg}"   
-    else:
-        message = f"csrs: {msg}"
-    print(message)
-    
-
 def file(
     site: str, 
-    date: str | Time, /, *, 
-    path: str | Path = './products', 
+    date: Time, 
+    /, *, 
+    path: Path = Path('./products'), 
     product: str, 
-    period: str | float, 
-    frequency: str | int, 
+    period: TimeDelta, 
+    frequency: TimeDelta, 
     constellation: str
 ) -> Path:
     """
@@ -69,17 +63,15 @@ def file(
     return path / filename
 
 def file_from_rinex(
-    rnx_file: str | Path, *, 
+    rnx_file: str, 
+    *, 
     product: str, 
-    path: str | Path = './products'
+    path: Path = Path('./products')
 ) -> Path:
     """
     Return a fully qualified file path for a given CSRS product
     corresponding to a RINEX filename
     """
-
-    if isinstance(rnx_file, Path):
-        rnx_file = rnx_file.name
 
     date = rnxutils.filedate(rnx_file)
     site = rnx_file.split('_')[0]
@@ -102,30 +94,11 @@ def process_epochs(epochs: list[str]) -> Time:
 
     return Time(mjd, format='mjd')
 
-def read_residuals(
-    site: str, 
-    date: str | Time, *, 
-    path: str | Path = './products', 
-    period: str | float = '01D', 
-    frequency: str | int = '30S', 
-    constellation: str = 'M'
-) -> Table:
-
-    if isinstance(date, str):
-        date = Time(date)
-
-    res_file = file(
-        site, date, product='res', path=path,
-        period=period, frequency=frequency, constellation=constellation
-    )
-
-    data = Table.read(res_file, format='ascii.fixed_width_two_line')
-
 def read_residuals_from_data(
     data: str, *, 
-    path: str | Path = './products', 
-    period: str | int = '01D', 
-    frequency: str | float ='30S', 
+    path: Path = Path('./products'), 
+    period: TimeDelta = TimeDelta('15min'), 
+    frequency: TimeDelta = TimeDelta('30s'), 
     constellation: str = 'M'
 ) -> Table:
 
@@ -206,23 +179,6 @@ def read_pos_from_data(data: str) -> Table:
 
     return tab
 
-def read_pos(
-    site: str, 
-    date: str | Time, *, 
-    path: str | Path = './products',
-    period: str | int = '01D', 
-    frequency: str | float = '30S', 
-    constellation:str =  'M'
-) -> Table:
-
-    if isinstance(date, str):
-        date = Time(date)
-
-    f = file(site, date, product='pos', period=period, frequency=frequency,
-        datatype=datatype, constellation=constellation, path=path)
-
-    return Table.read(f, format='ascii.fixed_width_two_line')
-    
 def read_zd_from_data(data: str) -> Table:
     
     lines = data.split("\n")
@@ -272,23 +228,6 @@ def read_zd_from_data(data: str) -> Table:
     
     return tab
 
-def read_zd(
-    site: str, 
-    date: str | Time, *, 
-    path: str | Path = './products',
-    period: str | int = '01D', 
-    frequency: str | float = '30S', 
-    constellation: str = 'M'
-) -> Table:
-
-    if isinstance(date, str):
-        date = Time(date)
-
-    f = file(site, date, product='tro', period=period, frequency=frequency,
-        datatype=datatype, constellation=constellation, path=path)
-
-    return Table.read(data, format='ascii.fixed_width_two_line')
-
 def wait_for_download_link(
     reqid: str, 
     max_time: float = 1800, 
@@ -296,7 +235,9 @@ def wait_for_download_link(
     sleeptime_variation: float = 0.3 # +/- 30% useful when threading
 ) -> str:
 
-    status_url = f"{RESULTS_URL}/status?id={reqid}"
+    logger = logging.getLogger()
+
+    results_url = f"{RESULTS_URL}?id={reqid}"
        
     if max_time < 300 or max_time > 7200:
         msg = 'CSRS. Max time for request processing should be in [300, 7200] s'
@@ -306,12 +247,12 @@ def wait_for_download_link(
     while totaltime <= max_time:
 
         dt = int(sleeptime * (1 + 2*sleeptime_variation*(random() - 0.5)))
-        message(f"sleep for {dt}s")
+        logger.info(f"sleep for {dt}s")
         time.sleep(dt)
         totaltime += dt
  
-        message('check status')
-        r = requests.get(f"{RESULTS_URL}?id={reqid}")
+        logger.info(f'check results at {results_url}')
+        r = requests.get(results_url)
         try:
             status = r.content.decode(encoding='utf-8', errors='strict')
         except UnicodeError:
@@ -348,12 +289,14 @@ def download_products(
     sleeptime_variation: float = 0.3 # +/- 30%. useful when threading
 ) -> dict[str, str]:
 
+    logger = logging.getLogger()
+
     max_tries = 30
-    message(f'Link: {link}')
+    logger.info(f'download link: {link}')
  
     for n in range(max_tries):
 
-        message(f"atempt to download results #{n + 1} of {max_tries}")
+        logger.info(f"atempt to download results #{n + 1} of {max_tries}")
         try:
             
             r = requests.get(link, timeout=5)
@@ -368,9 +311,10 @@ def download_products(
                     raise RuntimeError('no data') 
 
                 unzipped = {m: zip.read(m) for m in members}
-                message('the following products were downloaded and unzipped:')
+                msg = 'the following products were downloaded and unzipped:'
                 for m in members:
-                    message(f' * {m}')
+                    msg += f' {m}'
+                logger.info(msg)
 
                 return unzipped                       
 
@@ -406,8 +350,9 @@ def single_submit_attempt(
     products: list[str]
 ) -> dict[str, str]:
 
+    logger = logging.getLogger()
     zipped_stream = BytesIO(zipped_data)
-    
+     
     content = {
         'return_email': 'dummy_email',
         'cmd_process_type': 'std',
@@ -433,11 +378,11 @@ def single_submit_attempt(
 
     if not reqid:
 
-        message("request ID does not exist. Resubmit {rnx_file}.")
+        logger.info("request ID does not exist. Resubmit {rnx_file}.")
         return {}
 
     if 'DOCTYPE' in reqid:
-        message(f"request has a weird value. Resubmit {rnx_file}.")
+        logger.info(f"request has a weird value. Resubmit {rnx_file}.")
         return {}
 
     if reqid == 'ERROR [002]':
@@ -445,7 +390,7 @@ def single_submit_attempt(
         msg += "Please contact CGS for further information."
         raise RuntimeError(msg)
 
-    message(f'request ID: {reqid}')
+    logger.info(f'request ID: {reqid}')
 
     residuals = 'res' in products
     products = [p for p in products if p != 'res']
@@ -475,7 +420,7 @@ def single_submit_attempt(
 
 def submit_data(
     rnx_name: str, 
-    rnx_data: str | bytes,
+    rnx_data: Union[str, bytes],
     /, *, 
     username: str, 
     products: str = 'tro,pos,pdf,clk,sum,csv', 
@@ -497,6 +442,8 @@ def submit_data(
     Returned values: 
         files:      list of result files
     """ 
+    logger = logging.getLogger()
+
     max_requests=5
     max_time=7200
 
@@ -520,10 +467,12 @@ def submit_data(
         product_files.append(product_file)
 
     else:
-        print('already run')
+
         if not overwrite:
-            message(f'aleady been run for {rnx_name}. Skip')
+            logger.info(f'Already been run for {rnx_name}. Skip')
             return product_files
+        else:
+            logger.info('Already been run for {rnx_name} but overwrite')
 
     # encode & zip data if necessary 
 
@@ -538,7 +487,7 @@ def submit_data(
 
     for n in range(1, 1 + max_requests):
 
-        message(f"sending request for {rnx_name} ({n} of {max_requests})")
+        logger.info(f"sending request for {rnx_name} ({n} of {max_requests})")
 
         csrs_products = single_submit_attempt(
             rnx_name, rnx_data,
@@ -576,9 +525,9 @@ def submit_data(
     return product_files
   
 def submit_file(
-    rinex_file: Path | str,
+    rinex_file: Path,
     username: str = 'regis.lachaume@gmail.com',
-    path: Path | str = './products',
+    path: Path = Path('./products'),
     products: str = 'tro,pos,pdf,clk,sum,csv', 
     overwrite: bool = False 
 ):
@@ -619,8 +568,8 @@ def submit(
     date: Time, 
     /, *, 
     username: str, 
-    path: Path = './products', 
-    obsdata_path: Path ='./obsdata', 
+    path: Path = Path('./products'), 
+    obsdata_path: Path = Path('./obsdata'), 
     period: TimeDelta = TimeDelta('1d'), 
     frequency: TimeDelta = TimeDelta('30s'), 
     constellation: str = 'M',
@@ -658,25 +607,41 @@ def submit(
 
     return result_files
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(
+    frozen=True, 
+    # kw_only=True
+)
 class RinexObsSubmitter(Autocast):
 
     username: str 
     path: Path = Path('./products')
     products: str = 'tro,pdf'
     overwrite: bool = False 
- 
+    mqtt_client: MQTTClient = obstech_mqtt_client('CSRS') 
+
     def __call__(self, item: tuple[str, str]) -> list[Path]:
-       
+      
+        logger = logging.getLogger()
+ 
         rinex_name, rinex_data = item
-        message(f'submit data on {rinex_name}') 
+        logger.info(f'CSRS-PPP service: submit analysis for {rinex_name}') 
+
         product_files = submit_data(
             rinex_name, rinex_data, username=self.username, 
             path=self.path, products=self.products, overwrite=self.overwrite
         )
+
+        msg = f'CSRS-PPP service: results available for {rinex_name}'
+        logger.info(msg) 
+        mqtt_payload = dict(
+            event=msg, 
+            data=[str(f) for f in product_files]
+        )
+        self.mqtt_client.publish(mqtt_payload)
+
         return product_files
 
-def pipeline() -> None:
+def pipeline(args: Union[list[str], None] = None) -> None:
 
     user_types = {
         "astropy.time.Time": Time,
@@ -686,11 +651,17 @@ def pipeline() -> None:
 
     description = "Scan the disk for RINEX obs files and submit them to the precision point positioning service of the Canadian Spatial Reference System"
 
+    name = 'csrs_pipeline'
     parser = config.ConfigParser(
-        name='csrs_pipeline', description=description
+        name=name, description=description
     )
     parser.add_options_from_config(user_types=user_types)
-    args = parser.parse_args()
+    args = parser.parse_args(args=args)
+
+    # logging 
+    log_path = args.products_path / args.marker / 'logs'
+    logger = daily_logger(path=log_path, basename=name)
+    logger.setLevel(logging.DEBUG)
 
     username = 'regis.lachaume@gmail.com'
     scanner = rnxutils.RinexObsScanner(
@@ -701,9 +672,10 @@ def pipeline() -> None:
     )
     submitter = RinexObsSubmitter(
         username=args.username, path=args.products_path,
-        overwrite=args.overwrite_products
+        overwrite=args.overwrite
     )
 
     with ThreadPool(4) as pool:
         for item in pool.imap(submitter, scanner()):
-            print(item)
+            for file in item:
+                logger.info(f"product file: {file}")

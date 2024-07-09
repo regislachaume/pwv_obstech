@@ -2,7 +2,6 @@ import numpy as np
 
 from typing import TypeAlias
 from astropy.table import Table
-from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from scipy.integrate import trapezoid
 
@@ -10,6 +9,7 @@ from .meteoutils import (zenithal_hydrostatic_delay,
                         saturated_vapour_pressure,
                         absolute_humidity,
                         zwd_to_pwv_factor)
+from .geoid import GeoidLocation
 
 def wvp_weighted_mean_temperature(
     T: list[float], # ⁰C
@@ -61,14 +61,14 @@ class VerticalProfile:
         P0: float,
         h0: float,
         *,
-        site: EarthLocation,
+        site: GeoidLocation,
         t: Time,
         profile: Profile = [[], [], [], []],
     ) -> None:
         
         z, T, P, h = np.array(profile)
         # keep profile at and above ground conditions
-        z0 = site.height.to_value('m')
+        z0 = site.geoid_height.to_value('m')
 
         above = z > z0
         z = np.hstack([z0, z[above]])
@@ -99,7 +99,7 @@ class VerticalProfile:
             self._pwv = np.nan
             
         self._zhd = zenithal_hydrostatic_delay(
-            P[0], site.lat.deg, height=self._site.height.to_value('m')
+            P[0], site.lat.deg, height=z0
         )
         self._pwv_factor = zwd_to_pwv_factor(self._Tm)
         self._zwd = self._pwv / self._pwv_factor
